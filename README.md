@@ -2,6 +2,8 @@
 
 A cTrader indicator that displays Previous Day High/Low/Mid levels, Previous Week High/Low levels, and the NY Midnight opening price line.
 
+![Indicator Screenshot](screenshot.png)
+
 ## Features
 
 - **Previous Day Levels**: High, Low, and Mid (50%) lines with customizable colors
@@ -63,10 +65,6 @@ A cTrader indicator that displays Previous Day High/Low/Mid levels, Previous Wee
 3. Go to **Automate** > **Indicators**
 4. Click **New Indicator** or import the file
 5. Build and add to your chart
-
-## Screenshot
-
-![Indicator Screenshot](screenshot.png)
 
 ## License
 
