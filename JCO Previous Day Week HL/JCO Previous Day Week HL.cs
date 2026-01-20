@@ -3,6 +3,7 @@
 // =====================================================
 // Version: 2.3
 // Date: 2026-01-20
+// GitHub: https://github.com/jcornierfra/cTrader-Indicator-JCO-Previous-Day-Week-HL
 //
 // Changelog:
 // v2.3 (2026-01-20)
