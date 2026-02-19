@@ -1,11 +1,16 @@
 // =====================================================
 // Previous Day & Week High Low Indicator
 // =====================================================
-// Version: 2.3
-// Date: 2026-01-20
+// Version: 2.4
+// Date: 2026-02-19
 // GitHub: https://github.com/jcornierfra/cTrader-Indicator-JCO-Previous-Day-Week-HL
 //
 // Changelog:
+// v2.4 (2026-02-19)
+//   - Added Previous Month High & Low lines (purple by default)
+//   - Added PMH / PML labels and vertical lines for the month
+//   - Month range added to the dashboard
+//
 // v2.3 (2026-01-20)
 //   - Added NY Midnight opening price line
 //   - Added labels on all lines (PDH, PDM, PDL, PWH, PWL, 0 NY)
@@ -89,6 +94,28 @@ namespace cAlgo.Indicators
         [Parameter("Label Font Size", DefaultValue = 9, Group = "Previous Week")]
         public int PWHLFontSize { get; set; }
 
+        // ===== PREVIOUS MONTH PARAMETERS =====
+        [Parameter("Show Month Lines", DefaultValue = true, Group = "Previous Month")]
+        public bool ShowMonthLines { get; set; }
+
+        [Parameter("High Line Color", DefaultValue = "Purple", Group = "Previous Month")]
+        public string PMHLHighLineColor { get; set; }
+
+        [Parameter("Low Line Color", DefaultValue = "Purple", Group = "Previous Month")]
+        public string PMHLLowLineColor { get; set; }
+
+        [Parameter("Line Thickness", DefaultValue = 2, Group = "Previous Month")]
+        public int PMHLLineThickness { get; set; }
+
+        [Parameter("Extend Lines (Candles)", DefaultValue = 10, Group = "Previous Month")]
+        public int ExtendPMHLLines { get; set; }
+
+        [Parameter("Vertical Line Color", DefaultValue = "DarkViolet", Group = "Previous Month")]
+        public string PMHLVerticalLineColor { get; set; }
+
+        [Parameter("Label Font Size", DefaultValue = 9, Group = "Previous Month")]
+        public int PMHLFontSize { get; set; }
+
         // ===== NY MIDNIGHT PARAMETERS =====
         [Parameter("Show NY Midnight Line", DefaultValue = true, Group = "NY Midnight")]
         public bool ShowNYMidnight { get; set; }
@@ -129,15 +156,21 @@ namespace cAlgo.Indicators
         private double PreviousWeekHigh;
         private double PreviousWeekLow;
 
+        // Previous Month variables
+        private DateTime PreviousMonthStart;
+        private double PreviousMonthHigh;
+        private double PreviousMonthLow;
+
         // NY Midnight variables
         private double NYMidnightOpenPrice;
 
         private Bars _hourlyBars;
+        private Bars _dailyBars;
 
         protected override void Initialize()
         {
-            // Get the hourly timeframe bars
             _hourlyBars = MarketData.GetBars(TimeFrame.Hour);
+            _dailyBars = MarketData.GetBars(TimeFrame.Daily);
         }
 
         public override void Calculate(int index)
@@ -147,6 +180,7 @@ namespace cAlgo.Indicators
             // Always calculate values (needed for dashboard even if lines are hidden)
             CalculateDayHighLow();
             CalculateWeekHighLow();
+            CalculateMonthHighLow();
             CalculateNYMidnight();
 
             // Draw lines on the Chart (only if enabled)
@@ -262,6 +296,42 @@ namespace cAlgo.Indicators
             if (EnablePrint)
             {
                 Print("Previous Week High: {0}, Low: {1}", PreviousWeekHigh, PreviousWeekLow);
+            }
+        }
+
+        private void CalculateMonthHighLow()
+        {
+            if (_dailyBars.Count < 2) return;
+
+            if (ShowMonthLines)
+            {
+                foreach (var obj in Chart.Objects.Where(o => o.Name.StartsWith("MonthHighLow")).ToList())
+                {
+                    Chart.RemoveObject(obj.Name);
+                }
+            }
+
+            PreviousMonthHigh = double.MinValue;
+            PreviousMonthLow = double.MaxValue;
+
+            DateTime now = Server.Time;
+            PreviousMonthStart = new DateTime(now.Year, now.Month, 1).AddMonths(-1);
+            DateTime previousMonthEnd = new DateTime(now.Year, now.Month, 1);
+
+            // Iterate daily bars backward — O(~30) instead of O(31*24*N)
+            for (int i = _dailyBars.Count - 1; i >= 0; i--)
+            {
+                DateTime barDate = _dailyBars.OpenTimes[i].Date;
+                if (barDate >= previousMonthEnd) continue;
+                if (barDate < PreviousMonthStart) break;
+
+                PreviousMonthHigh = Math.Max(PreviousMonthHigh, _dailyBars.HighPrices[i]);
+                PreviousMonthLow = Math.Min(PreviousMonthLow, _dailyBars.LowPrices[i]);
+            }
+
+            if (EnablePrint)
+            {
+                Print("Previous Month High: {0}, Low: {1}", PreviousMonthHigh, PreviousMonthLow);
             }
         }
 
@@ -408,6 +478,58 @@ namespace cAlgo.Indicators
                 }
             }
 
+            // ===== PREVIOUS MONTH LINES =====
+            if (ShowMonthLines && PreviousMonthHigh > double.MinValue && PreviousMonthLow < double.MaxValue)
+            {
+                // Find month start time from daily bars
+                DateTime monthStartTime = PreviousMonthStart;
+                for (int i = _dailyBars.Count - 1; i >= 0; i--)
+                {
+                    if (_dailyBars.OpenTimes[i].Date <= PreviousMonthStart.Date)
+                    {
+                        monthStartTime = _dailyBars.OpenTimes[i];
+                        break;
+                    }
+                }
+
+                var monthEndTime = Server.TimeInUtc.AddMinutes(GetMinutesPerCandle() * ExtendPMHLLines);
+                var monthLabelTime = GetLabelPosition(monthEndTime, 5);
+
+                // High Line
+                var mHighLine = Chart.DrawTrendLine("MonthHighLow HighLine", monthStartTime, PreviousMonthHigh, monthEndTime, PreviousMonthHigh, Color.FromName(PMHLHighLineColor), PMHLLineThickness, LineStyle.Solid);
+                mHighLine.IsInteractive = false;
+                var mHighLabel = Chart.DrawText("MonthHighLow HighLabel", "PMH", monthLabelTime, PreviousMonthHigh, Color.FromName(PMHLHighLineColor));
+                mHighLabel.IsInteractive = false;
+                mHighLabel.HorizontalAlignment = HorizontalAlignment.Left;
+                mHighLabel.VerticalAlignment = VerticalAlignment.Center;
+                mHighLabel.FontSize = PMHLFontSize;
+
+                // Low Line
+                var mLowLine = Chart.DrawTrendLine("MonthHighLow LowLine", monthStartTime, PreviousMonthLow, monthEndTime, PreviousMonthLow, Color.FromName(PMHLLowLineColor), PMHLLineThickness, LineStyle.Solid);
+                mLowLine.IsInteractive = false;
+                var mLowLabel = Chart.DrawText("MonthHighLow LowLabel", "PML", monthLabelTime, PreviousMonthLow, Color.FromName(PMHLLowLineColor));
+                mLowLabel.IsInteractive = false;
+                mLowLabel.HorizontalAlignment = HorizontalAlignment.Left;
+                mLowLabel.VerticalAlignment = VerticalAlignment.Center;
+                mLowLabel.FontSize = PMHLFontSize;
+
+                if (ShowVerticalLines)
+                {
+                    Chart.DrawVerticalLine("MonthHighLow StartLine", monthStartTime, Color.FromName(PMHLVerticalLineColor), 1, LineStyle.Dots);
+
+                    // Find month end time from daily bars
+                    DateTime previousMonthEnd = PreviousMonthStart.AddMonths(1);
+                    for (int i = _dailyBars.Count - 1; i >= 0; i--)
+                    {
+                        if (_dailyBars.OpenTimes[i].Date <= previousMonthEnd.Date)
+                        {
+                            Chart.DrawVerticalLine("MonthHighLow EndLine", _dailyBars.OpenTimes[i], Color.FromName(PMHLVerticalLineColor), 1, LineStyle.Dots);
+                            break;
+                        }
+                    }
+                }
+            }
+
             // ===== NY MIDNIGHT LINE =====
             if (ShowNYMidnight && NYMidnightOpenPrice > double.MinValue)
             {
@@ -455,15 +577,26 @@ namespace cAlgo.Indicators
             if (PreviousWeekHigh > double.MinValue && PreviousWeekLow < double.MaxValue)
             {
                 rangeText += string.Format("Week Range: {0:F1} pips\n", (PreviousWeekHigh - PreviousWeekLow) / Symbol.PipSize);
-                
+
                 string weekHighText = PreviousWeekHigh.ToString("F" + Symbol.Digits);
                 string weekLowText = PreviousWeekLow.ToString("F" + Symbol.Digits);
-                
-                pricesText += string.Format("Prev Week H: {0}\nPrev Week L: {1}\n",
+
+                pricesText += string.Format("Prev Week H: {0}\nPrev Week L: {1}\n\n",
                     weekHighText, weekLowText);
             }
-            
-            rangeText += "\n\n\n\n\n\n\n\n";
+
+            if (PreviousMonthHigh > double.MinValue && PreviousMonthLow < double.MaxValue)
+            {
+                rangeText += string.Format("Month Range: {0:F1} pips\n", (PreviousMonthHigh - PreviousMonthLow) / Symbol.PipSize);
+
+                string monthHighText = PreviousMonthHigh.ToString("F" + Symbol.Digits);
+                string monthLowText = PreviousMonthLow.ToString("F" + Symbol.Digits);
+
+                pricesText += string.Format("Prev Month H: {0}\nPrev Month L: {1}\n",
+                    monthHighText, monthLowText);
+            }
+
+            rangeText += "\n\n\n\n\n\n\n\n\n\n\n";
             pricesText += " ";
             
             Chart.DrawStaticText("PrevText_Range", rangeText, VerticalAlignment.Bottom, HorizontalAlignment.Right, Color.LightBlue);
@@ -503,6 +636,7 @@ namespace cAlgo.Indicators
             foreach (var obj in Chart.Objects.Where(o =>
                 o.Name.StartsWith("DayHighLow") ||
                 o.Name.StartsWith("WeekHighLow") ||
+                o.Name.StartsWith("MonthHighLow") ||
                 o.Name.StartsWith("NYMidnight") ||
                 o.Name.StartsWith("PrevText")).ToList())
             {
